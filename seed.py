@@ -11,9 +11,23 @@ import numpy as np
 class SEED():# s n c t
     def __init__(self, data_path):
         self.data_path = data_path
-        self.eeg_data = None 
-        self.labels = None
+        self.eeg_data = None #[15, 3, 3394, 62, 200]
+        self.labels = None #[15, 3, 3394, 1]
     
+    def one_hot_encode(self, labels):
+        """
+        将 labels 从 [-1, 0, 1] 转换为 one-hot 编码
+        输入: [15, trials, 1]
+        输出: [15, trials, 3]
+        """
+        # 将 -1, 0, 1 映射为 0, 1, 2
+        labels = labels.squeeze(-1)  # 去掉最后一维，形状变为 [15, trials]
+
+        # 创建 one-hot 编码
+        num_classes = 3
+        one_hot_labels = np.eye(num_classes)[labels]  # 使用 np.eye 生成 one-hot 编码
+
+        return one_hot_labels  # 返回 [15, trials, 3]
 
     def load_data(self,session_merge=True):
         # 读取数据
@@ -60,7 +74,9 @@ class SEED():# s n c t
             self.eeg_data = self.eeg_data.reshape(15, -1, 62, 200)
             self.labels = self.labels.reshape(15, -1, 1)
             print(f"合并 session 后: eeg_data.shape={self.eeg_data.shape}, labels.shape={self.labels.shape}")
-
+        # # 将 labels 转换为 one-hot 编码
+        # self.labels = self.one_hot_encode(self.labels)
+        # print(f"One-hot 编码后: labels.shape={self.labels.shape}")
     def load_mat_sample(self,file_name):
         # 读取.mat文件
         sample = sio.loadmat(os.path.join(self.data_path, file_name)) # {'name_eeg{i}': array[62][200hz*scecond] } i: 1-15
@@ -70,21 +86,21 @@ class SEED():# s n c t
         label = sio.loadmat(os.path.join(self.data_path, 'label.mat'))['label'][0] # {'label': array[1][15]}
         return label
 
-    def split_data(self, data,label):
+    def split_data(self, data, label):
         """
-        将数据分割成1s不重叠的片段
+        将数据分割成 1s 不重叠的片段
         """
         data = np.array(data)
-        split_num = int(data.shape[1] / 200)
+        split_num = int(data.shape[1] / 200)  # 每段 1 秒（200 Hz）
 
-        segmented_data = np.empty((split_num,data.shape[0], 200)) # [segments, 62, 200hz]
-        segmented_label = []
+        # 初始化分割后的数据和标签
+        segmented_data = np.empty((split_num, data.shape[0], 200))  # [segments, 62, 200hz]
+        segmented_label = np.full((split_num, 1), label)  # 每段的标签与原始标签一致
 
         for tmp_num in range(split_num):
-            segmented_data[tmp_num,:,:]=data[:,tmp_num*200:(tmp_num+1)*200]
-            segmented_label.append(label)
+            segmented_data[tmp_num, :, :] = data[:, tmp_num * 200:(tmp_num + 1) * 200]
 
-        return segmented_data,np.array(segmented_label).reshape(-1,1) # [segments, 1]
+        return segmented_data, segmented_label  # [segments, 62, 200hz], [segments, 1]
 
     def process(self,sample,trial_label):
         """
@@ -97,6 +113,10 @@ class SEED():# s n c t
         for trial_id in range(len(trial_name)):
             trial = sample[f'{trial_base_name}_eeg{trial_id+1}'] #
             label = trial_label[trial_id] # 0 1 -1
+
+            # 将标签从 0, -1, 1 映射为 0, 1, 2
+            label = (label + 1).astype(int)
+
             segmented_data,segmented_label = self.split_data(trial,label) # [segments, 62,200hz] [segments,1]
 
             labels.append(segmented_label) 
@@ -108,7 +128,3 @@ if __name__ == '__main__':
     data_path = '/home/yuehao02/EEGDataSet/SEED/SEED/Preprocessed_EEG/'
     seed = SEED(data_path)
     seed.load_data(session_merge=True)
-    
-
-
-        
